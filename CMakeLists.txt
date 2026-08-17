@@ -35,6 +35,8 @@ target_sources(PYRo PRIVATE
         Peripheral/DWT/pyro_dwt_drv.cpp
         Peripheral/UART/pyro_uart_drv.cpp
         Peripheral/UART/pyro_bsp_uart.cpp
+        Peripheral/PWM/pyro_pwm_drv.cpp
+        Peripheral/PWM/pyro_bsp_pwm.cpp
 
         # --- Algorithm ---
         Algorithm/Kinematics/pyro_kin_hybrid.cpp
@@ -68,6 +70,7 @@ target_sources(PYRo PRIVATE
         Component/SR/pyro_sr04_drv.cpp
         Component/SR/pyro_sr05_drv.cpp
         Component/SR/pyro_us100_drv.cpp
+        Component/Buzzer/pyro_buzzer_drv.cpp
 
         # --- Debug ---
         Debug/Debug_task.cpp
@@ -100,6 +103,7 @@ target_include_directories(PYRo PUBLIC
         Peripheral/CAN
         Peripheral/DWT
         Peripheral/UART
+        Peripheral/PWM
 
         # --- Device ---
         Device/BMI088
@@ -129,6 +133,7 @@ target_include_directories(PYRo PUBLIC
         Component/Supercap
         Component/SR
         Component/Image
+        Component/Buzzer
 
         # --- Module ---
         Module

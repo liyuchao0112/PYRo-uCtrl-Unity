@@ -8,6 +8,7 @@ namespace pyro {
 
 class pwm_drv_t {
     friend class bsp_pwm;
+    
   public:
     status_t init();
     status_t deinit();
@@ -21,7 +22,8 @@ class pwm_drv_t {
     uint8_t get_duty_cycle() const;
 
   private:
-    explicit pwm_drv_t()
+    explicit pwm_drv_t(TIM_HandleTypeDef *htim, uint32_t channel);
+
 };
 
 } // namespace pyro

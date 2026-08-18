@@ -11,11 +11,11 @@ class bsp_pwm {
         pwm_tim12_ch2
     };
 
-    static pwm_drv_t& get_tim3_ch4();
+    static pwm_drv_t& get_tim12_ch2();
 
     static pwm_drv_t* get_pwm(which_pwm which);
 
-    static status_t init_all();       // 触发各实例首次构造并 init
+    static status_t init_all();
 };
 
 } // namespace pyro

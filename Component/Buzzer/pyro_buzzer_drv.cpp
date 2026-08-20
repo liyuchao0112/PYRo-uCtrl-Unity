@@ -69,7 +69,10 @@ status_t buzzer_drv_t::submit_play(const uint16_t notes[], const uint32_t durati
     // 后台任务内调用：直接同步播放，避免等自己完成而死锁
     if (_task.is_self()) {
         for (uint32_t i = 0; i < len; i++) {
-            if (notes[i] != 0u) { _pwm->set_frequency(notes[i]); _pwm->start(); }
+            if (notes[i] != 0u) {
+                _pwm->set_frequency(notes[i]);
+                _pwm->start();
+            }
             vTaskDelay(pdMS_TO_TICKS(durations[i]));
             _pwm->stop();
         }
@@ -310,7 +313,7 @@ void buzzer_drv_t::update_playback() {
 }
 
 buzzer_drv_t::player_task_t::player_task_t(buzzer_drv_t* owner)
-    : task_base_t("buzzer_task", 256, 512, priority_t::LOW), _owner(owner) {}
+    : task_base_t("buzzer_task", 256, 512, priority_t::NORMAL), _owner(owner) {}
 
 void buzzer_drv_t::player_task_t::notify() {
     if (_loop_task_handle != nullptr) xTaskNotifyGive(_loop_task_handle);

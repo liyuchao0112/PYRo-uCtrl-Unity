@@ -1,154 +1,157 @@
 #ifndef __PYRO_BUZZER_DRV_H__
 #define __PYRO_BUZZER_DRV_H__
 
+/**
+ * @file pyro_buzzer_drv.h
+ * @brief 蜂鸣器驱动（复用 pwm_drv_t；无队列设计，新播放覆盖式、暂停静音）。
+ */
+
+#include "pyro_core_def.h"
 #include "pyro_pwm_drv.h"
 #include "pyro_task.h"
-
-#define NOTE_B0  31
-#define NOTE_C1  33
-#define NOTE_CS1 35
-#define NOTE_D1  37
-#define NOTE_DS1 39
-#define NOTE_E1  41
-#define NOTE_F1  44
-#define NOTE_FS1 46
-#define NOTE_G1  49
-#define NOTE_GS1 52
-#define NOTE_A1  55
-#define NOTE_AS1 58
-#define NOTE_B1  62
-#define NOTE_C2  65
-#define NOTE_CS2 69
-#define NOTE_D2  73
-#define NOTE_DS2 78
-#define NOTE_E2  82
-#define NOTE_F2  87
-#define NOTE_FS2 93
-#define NOTE_G2  98
-#define NOTE_GS2 104
-#define NOTE_A2  110
-#define NOTE_AS2 117
-#define NOTE_B2  123
-#define NOTE_C3  131
-#define NOTE_CS3 139
-#define NOTE_D3  147
-#define NOTE_DS3 156
-#define NOTE_E3  165
-#define NOTE_F3  175
-#define NOTE_FS3 185
-#define NOTE_G3  196
-#define NOTE_GS3 208
-#define NOTE_A3  220
-#define NOTE_AS3 233
-#define NOTE_B3  247
-#define NOTE_C4  262
-#define NOTE_CS4 277
-#define NOTE_D4  294
-#define NOTE_DS4 311
-#define NOTE_E4  330
-#define NOTE_F4  349
-#define NOTE_FS4 370
-#define NOTE_G4  392
-#define NOTE_GS4 415
-#define NOTE_A4  440
-#define NOTE_AS4 466
-#define NOTE_B4  494
-#define NOTE_C5  523
-#define NOTE_CS5 554
-#define NOTE_D5  587
-#define NOTE_DS5 622
-#define NOTE_E5  659
-#define NOTE_F5  698
-#define NOTE_FS5 740
-#define NOTE_G5  784
-#define NOTE_GS5 831
-#define NOTE_A5  880
-#define NOTE_AS5 932
-#define NOTE_B5  988
-#define NOTE_C6  1047
-#define NOTE_CS6 1109
-#define NOTE_D6  1175
-#define NOTE_DS6 1245
-#define NOTE_E6  1319
-#define NOTE_F6  1397
-#define NOTE_FS6 1480
-#define NOTE_G6  1568
-#define NOTE_GS6 1661
-#define NOTE_A6  1760
-#define NOTE_AS6 1865
-#define NOTE_B6  1976
-#define NOTE_C7  2093
-#define NOTE_CS7 2217
-#define NOTE_D7  2349
-#define NOTE_DS7 2489
-#define NOTE_E7  2637
-#define NOTE_F7  2794
-#define NOTE_FS7 2960
-#define NOTE_G7  3136
-#define NOTE_GS7 3322
-#define NOTE_A7  3520
-#define NOTE_AS7 3729
-#define NOTE_B7  3951
-#define NOTE_C8  4186
-#define NOTE_CS8 4435
-#define NOTE_D8  4699
-#define NOTE_DS8 4978
+#include "pyro_mutex.h"
+#include "FreeRTOS.h"
+#include "task.h"
+#include "semphr.h"
+#include <cstdint>
 
 namespace pyro {
 
+// 配置常量
+constexpr uint32_t BUZZER_MAX_MELODY_LEN = 64;   // 旋律最大音符数
+constexpr uint16_t BUZZER_DEFAULT_FREQ   = 4000; // beep 默认频率 Hz
+
+// 音符枚举（半音序号：C=0, C#=1, ..., A=9, ..., B=11）
+enum class note_t : uint8_t {
+    C, CS, D, DS, E, F, FS, G, GS, A, AS, B
+};
+
+// 节奏型一步
+struct rhythm_step_t {
+    note_t   note;
+    uint8_t  octave;
+    uint16_t beats;   // 拍数（受 tempo 控制）
+    bool     rest;    // 休止符
+};
+
+// 常用音符常量（C4 八度）
+constexpr uint16_t NOTE_C4 = 262, NOTE_D4 = 294, NOTE_E4 = 330, NOTE_F4 = 349,
+                   NOTE_G4 = 392, NOTE_A4 = 440, NOTE_B4 = 494;
+
+/**
+ * @brief 蜂鸣器驱动（播放器）。复用 pwm_drv_t，新播放覆盖式、暂停完全静音。
+ */
 class buzzer_drv_t {
   public:
-    static buzzer_drv_t& get_instance();
+    static buzzer_drv_t& get_instance();   // 单例
 
-    buzzer_drv_t(const buzzer_drv_t&) = delete;
+    buzzer_drv_t(const buzzer_drv_t&)            = delete;
     buzzer_drv_t& operator=(const buzzer_drv_t&) = delete;
+    ~buzzer_drv_t() = default;
 
-    ~buzzer_drv_t();
-
-    status_t init();
-    status_t deinit();
-
-    void beep(uint16_t freqency, uint32_t duration_ms);
-    void beep(uint32_t duration_ms);
-
-    void set_frequency(uint16_t frequency);
-    void start();
-    void stop();
-
+    // 基础（阻塞：入队 + 等待完成）
+    status_t beep(uint32_t frequency, uint32_t duration_ms);
+    status_t beep(uint32_t duration_ms);
+    status_t start();
+    status_t stop();
     bool is_playing() const;
 
-    void play_note(uint16_t note, uint32_t duration_ms);
-    void play_note(uint16_t note, uint8_t octave, uint32_t duration_ms);
+    // 音符
+    status_t play_note(uint16_t frequency, uint32_t duration_ms);
+    status_t play_note(note_t note, uint8_t octave, uint32_t duration_ms);
 
-    void play
+    // 旋律
+    status_t play_melody(const uint16_t notes[], const uint32_t durations[], uint32_t len);
+    status_t play_melody_blocking(const uint16_t notes[], const uint32_t durations[], uint32_t len);
+    status_t play_melody_async(const uint16_t notes[], const uint32_t durations[], uint32_t len);
 
+    // 节奏（阻塞）
+    status_t play_rhythm(const rhythm_step_t pattern[], uint32_t len);
+
+    // RTTTL 铃声（非阻塞：解析后异步提交，立即返回）
+    status_t play_rtttl(const char* rtttl);
+
+    // 音量/静音
+    status_t set_volume(uint8_t percent);   // 0-100 → duty 0~1
+    uint8_t  get_volume() const;
+    status_t mute();
+    status_t unmute();
+
+    // 速度
+    void set_tempo(uint16_t bpm);
+    uint16_t get_tempo() const;
+
+    // 播放控制
+    status_t pause();
+    status_t resume();
+    void set_loop(bool enable);
+
+    // 工具
+    static uint32_t note_to_freq(note_t note, uint8_t octave);
 
   private:
-    buzzer_drv_t();
+    buzzer_drv_t();                             // 私有：内部绑定 bsp_pwm
 
-    class buzzer_task_t : public task_base_t {
+    // 提交新播放内容（覆盖式）并唤醒后台；wait_complete=true 时阻塞到播完
+    status_t submit_play(const uint16_t notes[], const uint32_t durations[], uint32_t len,
+                         bool wait_complete);
+
+    bool take_pending();                   // 加锁读取待播内容；有则拷入 _run_* 并返回 true
+    status_t store_play(const uint16_t notes[], const uint32_t durations[], uint32_t len);  // 加锁写入待播内容（覆盖），释放被覆盖的等待者
+    void notify_done();                    // 定向唤醒当前阻塞等待者（播完/停止）
+    void check_pending();                  // 有待播内容则覆盖并开始
+    void update_playback();                // 逐音符推进
+
+    static note_t rtttl_note(char c, bool sharp);   // RTTTL 音名（C..B + #）→ note_t
+
+    class player_task_t : public task_base_t {
       public:
-        buzzer_task_t() :
-            task_base_t("buzzer", 256, 256, priority_t::NORMAL) {}
-
+        explicit player_task_t(buzzer_drv_t* owner);
+        void notify();                     // 唤醒后台任务（任务通知）
+        bool is_self() const;              // 是否在后台任务上下文
       protected:
-        status_t init() override {
-            
-        }
-      
-        void run_loop() override {
-            while(true) {      
-            }
-        }
-      
+        status_t init() override;
+        void run_loop() override;
       private:
-        struct play_unit {
-            uint16_t freq;
-            uint32_t duration_ms;
-        } play_queue[64];
+        buzzer_drv_t* _owner;
     };
+
+    pwm_drv_t* _pwm;
+    player_task_t _task;
+    pyro::mutex_t _mutex;                  // 保护输入区共享数据
+
+    // 输入区：调用线程写 / 后台读（notes/durations/len/pending 用锁保护）
+    struct play_state_t {
+        bool pending = false;
+        uint16_t notes[BUZZER_MAX_MELODY_LEN];
+        uint16_t durations[BUZZER_MAX_MELODY_LEN];
+        uint32_t len = 0;
+        volatile bool paused    = false;
+        volatile bool loop      = false;
+        volatile bool need_stop = false;
+    } _state;
+
+    // 运行区：后台任务独占
+    uint16_t _run_notes[BUZZER_MAX_MELODY_LEN];
+    uint16_t _run_durations[BUZZER_MAX_MELODY_LEN];
+    uint32_t _run_len = 0;
+    bool     _playing = false;
+    bool     _need_start = false;
+    uint8_t  _idx = 0;
+    uint32_t _note_start_tick = 0;
+
+    // 当前阻塞等待者及其专用信号量（单等待者假设；_mutex 保护）
+    struct waiter_t {
+        TaskHandle_t task = nullptr;
+        SemaphoreHandle_t sem = nullptr;
+    } _waiter;
+
+    uint8_t  _volume = 50;
+    bool     _muted = false;
+    volatile uint16_t _tempo_bpm = 120;
+    volatile uint16_t _beat_ms = 125;     // 120BPM → 四分音符 125ms
 };
 
 } // namespace pyro
 
-#endif
+#endif // __PYRO_BUZZER_DRV_H__

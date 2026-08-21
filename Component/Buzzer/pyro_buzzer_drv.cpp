@@ -1,10 +1,10 @@
 #include "pyro_buzzer_drv.h"
 #include "pyro_bsp_pwm.h"
 
-#include <cctype>    // isdigit, toupper
-#include <cstdio>    // sscanf
-#include <cstring>   // memcpy, strchr
-#include <cmath>     // pow, lround
+#include <cctype>
+#include <cstdio>
+#include <cstring>
+#include <cmath>
 
 namespace pyro {
 
@@ -13,7 +13,6 @@ uint32_t buzzer_drv_t::note_to_freq(note_t note, uint8_t octave) {
     return (uint32_t)std::lround(440.0 * std::pow(2.0, semi / 12.0));
 }
 
-// RTTTL 音名（C D E F G A B + # 升半音）→ note_t
 note_t buzzer_drv_t::rtttl_note(char c, bool sharp) {
     switch (c) {
         case 'C': return sharp ? note_t::CS : note_t::C;
@@ -39,12 +38,12 @@ buzzer_drv_t::buzzer_drv_t()
 
 status_t buzzer_drv_t::store_play(const uint16_t notes[], const uint32_t durations[], uint32_t len) {
     pyro::scoped_mutex_t lock(_mutex);
-    if (_waiter.sem != nullptr) {            // 有旧等待者被覆盖 → 定向唤醒它
+    if (_waiter.sem != nullptr) {
         xSemaphoreGive(_waiter.sem);
         _waiter.task = nullptr;
         _waiter.sem  = nullptr;
     }
-    _state.pending = true;                   // 覆盖：最新内容直接写入
+    _state.pending = true;
     _state.len = len;
     for (uint32_t i = 0; i < len; i++) {
         _state.notes[i] = notes[i];
@@ -79,13 +78,15 @@ status_t buzzer_drv_t::submit_play(const uint16_t notes[], const uint32_t durati
         return PYRO_OK;
     }
 
-    const status_t r = store_play(notes, durations, len);  // 加锁写入（覆盖），并释放被覆盖的等待者
+    const status_t r = store_play(notes, durations, len);
     if (r != PYRO_OK) return r;
     _task.notify();
 
-    if (wait_complete) {                     // 阻塞：用专用信号量等"播完或被覆盖"
+    if (wait_complete) {
         SemaphoreHandle_t my_sem = xSemaphoreCreateBinary();
-        if (my_sem == nullptr) return PYRO_NO_MEMORY;
+        if (my_sem == nullptr)
+            return PYRO_NO_MEMORY;
+
         {
             pyro::scoped_mutex_t lock(_mutex);
             _waiter.task = xTaskGetCurrentTaskHandle();
@@ -139,23 +140,24 @@ status_t buzzer_drv_t::play_rhythm(const rhythm_step_t pattern[], uint32_t len) 
     return submit_play(notes, durs, len, true);
 }
 
-// ===== RTTTL 铃声（非阻塞） =====
-status_t buzzer_drv_t::play_rtttl(const char* rtttl) {
+status_t buzzer_drv_t::play_rtttl(bool is_blocking, const char* rtttl) {
     if (rtttl == nullptr) return PYRO_PARAM_ERROR;
 
-    // 1) 定位控制区与音符序列（两个 ':' 分隔）
+    // 定位
     const char* ctrl  = strchr(rtttl, ':');
-    if (!ctrl) return PYRO_PARAM_ERROR;
+    if (!ctrl)
+        return PYRO_PARAM_ERROR;
     const char* notes = strchr(ctrl + 1, ':');
-    if (!notes) return PYRO_PARAM_ERROR;
-    notes++;                                  // 跳过第二个 ':'
+    if (!notes)
+        return PYRO_PARAM_ERROR;
+    notes++;
 
     unsigned dd = 4, oo = 5, bb = 120;
     sscanf(ctrl + 1, "d=%u,o=%u,b=%u", &dd, &oo, &bb);
     if (bb == 0) bb = 120;
-    const uint32_t beat_ms = 60000u / bb;
+    const uint32_t beat_ms = 60000 / bb;
 
-    // 3) 逐音符解析 [时值][音名][#][.]
+    // 逐音符解析
     uint16_t freq[BUZZER_MAX_MELODY_LEN];
     uint32_t dur[BUZZER_MAX_MELODY_LEN];
     uint32_t n = 0;
@@ -164,19 +166,25 @@ status_t buzzer_drv_t::play_rtttl(const char* rtttl) {
         while (*p == ',' || *p == ' ') p++;   // 跳过分隔
         if (!*p) break;
 
-        uint8_t d_i = (uint8_t)dd;            // 时值（可被数字覆盖）
+        uint8_t d_i = (uint8_t)dd;
         if (isdigit((unsigned char)*p)) {
             d_i = 0;
             while (isdigit((unsigned char)*p)) { d_i = (uint8_t)(d_i * 10 + (*p - '0')); p++; }
         }
-        if (d_i == 0u) d_i = 4u;              // 防护
+        if (d_i == 0u)
+            d_i = 4u;
 
         char nc = (char)toupper((unsigned char)*p);
-        p++;                                  // 跳过音名字母
-        if (nc == 'P') { freq[n] = 0u; }      // 休止符：静音计时
+        p++;
+        
+        if (nc == 'P')
+            freq[n] = 0u;      // 休止符：静音计时
         else {
             bool sharp = false;
-            if (*p == '#') { sharp = true; p++; }
+            if (*p == '#') {
+                sharp = true;
+                p++;
+            }
             freq[n] = note_to_freq(rtttl_note(nc, sharp), (uint8_t)oo);
         }
         bool dot = false;
@@ -195,7 +203,7 @@ status_t buzzer_drv_t::play_rtttl(const char* rtttl) {
             p++;
     }
 
-    return submit_play(freq, dur, n, false);
+    return submit_play(freq, dur, n, is_blocking);
 }
 
 status_t buzzer_drv_t::stop() {
@@ -229,15 +237,16 @@ bool buzzer_drv_t::is_playing() const {
     return _playing;
 }
 
-// ===== 音量/速度 =====
-status_t buzzer_drv_t::set_volume(uint8_t percent)
-{
-    if (percent > 100u) return PYRO_PARAM_ERROR;
+status_t buzzer_drv_t::set_volume(uint8_t percent) {
+    if (percent > 100u)
+        return PYRO_PARAM_ERROR;
     _volume = percent;
     return _muted ? PYRO_OK : _pwm->set_duty_cycle((float)_volume / 100.0f);
 }
 
-uint8_t buzzer_drv_t::get_volume() const { return _volume; }
+uint8_t buzzer_drv_t::get_volume() const {
+    return _volume;
+}
 
 status_t buzzer_drv_t::mute() {
     _muted = true;
@@ -329,26 +338,26 @@ status_t buzzer_drv_t::player_task_t::init() {
 
 void buzzer_drv_t::player_task_t::run_loop() {
     while (1) {
-        if (_owner->_state.paused) {           // 暂停：完全静音，阻塞等恢复
+        if (_owner->_state.paused) {
             _owner->_pwm->stop();
             _owner->_playing = false;
             _owner->_need_start = true;
-            if (_owner->_state.need_stop) {    // 暂停中也能响应 stop
+            if (_owner->_state.need_stop) {
                 _owner->_state.need_stop = false;
-                _owner->notify_done();         // 停止：定向唤醒等待者
+                _owner->notify_done();
             }
             xTaskNotifyWait(0, 0, nullptr, portMAX_DELAY);
             continue;
         }
-        if (_owner->_state.need_stop) {        // 停止请求
+        if (_owner->_state.need_stop) {
             _owner->_state.need_stop = false;
             _owner->_pwm->stop();
             _owner->_playing = false;
-            _owner->notify_done();             // 停止：定向唤醒等待者
+            _owner->notify_done();
         }
-        _owner->check_pending();               // 有新播放内容则覆盖播放
-        _owner->update_playback();             // 逐音符推进
-        xTaskNotifyWait(0, 0, nullptr, 10);    // 等通知或 10ms 超时
+        _owner->check_pending();
+        _owner->update_playback();
+        xTaskNotifyWait(0, 0, nullptr, pdMS_TO_TICKS(10));
     }
 }
 

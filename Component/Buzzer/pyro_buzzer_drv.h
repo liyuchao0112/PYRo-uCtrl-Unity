@@ -68,8 +68,8 @@ class buzzer_drv_t {
     // 节奏（阻塞）
     status_t play_rhythm(const rhythm_step_t pattern[], uint32_t len);
 
-    // RTTTL 铃声（非阻塞：解析后异步提交，立即返回）
-    status_t play_rtttl(const char* rtttl);
+    // RTTTL
+    status_t play_rtttl(bool is_blocking, const char* rtttl);
 
     // 音量/静音
     status_t set_volume(uint8_t percent);   // 0-100 → duty 0~1

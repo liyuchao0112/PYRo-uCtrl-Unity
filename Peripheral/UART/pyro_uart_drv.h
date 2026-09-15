@@ -21,6 +21,7 @@
 #include "stm32h7xx_hal_uart.h"
 
 #include "pyro_core_def.h"
+#include "pyro_serial_itf.h"
 
 #include "FreeRTOS.h"
 
@@ -40,28 +41,15 @@ class bsp_uart;
  * @brief UART driver class.
  * 串口驱动类。
  */
-class uart_drv_t
+class uart_drv_t : public serial_itf_t
 {
     // Declare bsp_uart as a friend to allow calling the private constructor.
     // 声明 bsp_uart 为友元，允许其调用私有构造函数。
     friend class bsp_uart;
 
     /* Private Types ---------------------------------------------------------*/
-    /**
-     * @brief RX event callback signature.
-     * 接收事件回调函数签名。
-     *
-     * @param p Pointer to the received data buffer.
-     * 接收数据缓冲区的指针。
-     * @param size Size of the received data.
-     * 接收数据的大小。
-     * @param xHigherPriorityTaskWoken Flag to request a context switch.
-     * 请求上下文切换的标志。
-     * @return true if the data is consumed and buffer should switch.
-     * 如果数据已被处理且需要切换缓冲区，则返回 true。
-     */
-    using rx_event_func = std::function<bool(
-        uint8_t *p, uint16_t size, BaseType_t& xHigherPriorityTaskWoken)>;
+    // 注：rx_event_func 继承自 serial_itf_t（UART 与 USB-CDC 共用同一回调签名），
+    //     此处不再重复定义。
 
     // 【新增】定义 TX 发送完成的事件回调函数类型
     using tx_cplt_func = std::function<void(BaseType_t& xHigherPriorityTaskWoken)>;
@@ -99,7 +87,7 @@ public:
      * @brief Destructor.
      * 析构函数。
      */
-    ~uart_drv_t();
+    ~uart_drv_t() override;
 
     /* Public Methods - Peripheral Management --------------------------------*/
     /**
@@ -107,7 +95,7 @@ public:
      * 复位并重新初始化串口外设。
      */
     status_t reset(uint32_t BaudRate, uint32_t WordLength, uint32_t StopBits,
-                   uint32_t Parity);
+                   uint32_t Parity) override;
 
     /**
      * @brief 设置是否交换 TX 和 RX 引脚。
@@ -129,39 +117,50 @@ public:
      * @brief Blocking write using HAL polling.
      * 使用 HAL 轮询方式的阻塞写操作。
      */
-    status_t write(const uint8_t *p, uint16_t size, uint32_t waittime);
+    status_t write(const uint8_t *p, uint16_t size, uint32_t waittime) override;
 
     /**
      * @brief Non-blocking write using HAL DMA.
      * 使用 HAL DMA 方式的非阻塞写操作。
      */
-    status_t write(const uint8_t *p, uint16_t size);
+    status_t write(const uint8_t *p, uint16_t size) override;
 
     /* Public Methods - Reception Control ------------------------------------*/
     /**
      * @brief Starts DMA reception in ReceiveToIdle mode.
      * 启动 ReceiveToIdle 模式的 DMA 接收。
      */
-    status_t enable_rx_dma();
+    status_t enable_rx_dma() override;
 
     /**
      * @brief Aborts the ongoing DMA reception.
      * 终止正在进行的 DMA 接收。
      */
-    status_t disable_rx_dma();
+    status_t disable_rx_dma() override;
 
     /* Public Methods - Custom Callback Management ---------------------------*/
     /**
      * @brief Adds a custom C++ RX event callback.
      * 添加自定义的 C++ 接收事件回调。
      */
-    void add_rx_event_callback(const rx_event_func &func, uint32_t owner);
+    void add_rx_event_callback(const rx_event_func &func, uint32_t owner) override;
 
     /**
      * @brief Removes a custom C++ RX event callback by its owner ID.
      * 根据所有者 ID 移除自定义的 C++ 接收事件回调。
      */
-    status_t remove_rx_event_callback(uint32_t owner);
+    status_t remove_rx_event_callback(uint32_t owner) override;
+
+    /**
+     * @brief 驱动层组帧配置（serial_itf_t 契约）。
+     * @note UART 侧保持现有 IDLE 语义：DMA ReceiveToIdle 已按"一段数据"回调，
+     *       故此处为 no-op；接口存在是为了让调用层对 UART/USB 无差别调用。
+     */
+    void set_frame_config(uint8_t sof, uint16_t frame_len) override
+    {
+        (void) sof;
+        (void) frame_len;
+    }
 
     // 【新增】注册 TX 发送完成回调
     void set_tx_cplt_callback(const tx_cplt_func &func) {

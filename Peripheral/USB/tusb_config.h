@@ -61,8 +61,8 @@ extern "C" {
 #define CFG_TUD_CDC_NOTIFY        1   // 与 TUD_CDC_DESCRIPTOR 中的 notify 端点对应
 
 // CDC FIFO（单帧仅 ~29B，给足余量便于吸收突发）
-#define CFG_TUD_CDC_RX_BUFSIZE    1024
-#define CFG_TUD_CDC_TX_BUFSIZE    1024
+#define CFG_TUD_CDC_RX_BUFSIZE    256
+#define CFG_TUD_CDC_TX_BUFSIZE    256
 #define CFG_TUD_CDC_RX_EPSIZE     64
 #define CFG_TUD_CDC_TX_EPSIZE     64
 

@@ -95,7 +95,7 @@ public:
      * 复位并重新初始化串口外设。
      */
     status_t reset(uint32_t BaudRate, uint32_t WordLength, uint32_t StopBits,
-                   uint32_t Parity) override;
+                   uint32_t Parity);
 
     /**
      * @brief 设置是否交换 TX 和 RX 引脚。
@@ -130,13 +130,13 @@ public:
      * @brief Starts DMA reception in ReceiveToIdle mode.
      * 启动 ReceiveToIdle 模式的 DMA 接收。
      */
-    status_t enable_rx_dma() override;
+    status_t enable_rx_dma();
 
     /**
      * @brief Aborts the ongoing DMA reception.
      * 终止正在进行的 DMA 接收。
      */
-    status_t disable_rx_dma() override;
+    status_t disable_rx_dma();
 
     /* Public Methods - Custom Callback Management ---------------------------*/
     /**

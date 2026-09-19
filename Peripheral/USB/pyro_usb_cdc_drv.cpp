@@ -94,12 +94,6 @@ status_t usb_cdc_drv_t::start()
 
 /* ======================= serial_itf_t 实现 ============================= */
 
-status_t usb_cdc_drv_t::reset(uint32_t /*BaudRate*/, uint32_t /*WordLength*/,
-                              uint32_t /*StopBits*/, uint32_t /*Parity*/)
-{
-    return PYRO_OK;   // USB 无链路参数，与 UART 调用点保持签名一致
-}
-
 status_t usb_cdc_drv_t::write(const uint8_t *p, uint16_t size)
 {
     if (!p || size == 0 || !tud_mounted())
@@ -122,7 +116,9 @@ status_t usb_cdc_drv_t::write(const uint8_t *p, uint16_t size, uint32_t)
     return write(p, size);
 }
 
-status_t usb_cdc_drv_t::enable_rx_dma()
+/* ===================== USB 专有接收控制 ========================== */
+
+status_t usb_cdc_drv_t::enable_rx()
 {
 #if USB_CDC_LOOPBACK == 2
     // 自测档位 2：用自瞄的帧参数开启组帧，从而验证 frame_parser_t 的切帧行为
@@ -132,7 +128,7 @@ status_t usb_cdc_drv_t::enable_rx_dma()
     return PYRO_OK;
 }
 
-status_t usb_cdc_drv_t::disable_rx_dma()
+status_t usb_cdc_drv_t::disable_rx()
 {
     _rx_enabled = false;
     return PYRO_OK;

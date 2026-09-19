@@ -16,6 +16,12 @@ namespace pyro
  *  1) 一次 rx 回调 = 一个完整帧（由驱动层内部组帧保证，见 set_frame_config）；
  *  2) write() 返回 PYRO_BUSY 表示"没发出去，可重试"；
  *  3) "在线"判定由调用层超时逻辑负责，驱动层只提供物理收发能力。
+ *
+ * 成员范围：本接口只包含**抽象消费者（infantry2_autoaim_drv_t）通过
+ * serial_itf_t* 实际调用的方法**。链路开启与参数配置不属于本契约：
+ *   uart_drv_t    -> reset() + enable_rx_dma()
+ *   usb_cdc_drv_t -> start()  + enable_rx()
+ * 它们由各驱动自行提供，调用点在 pyro_init_thread.cpp 的 #ifdef 分派处。
  */
 class serial_itf_t
 {
@@ -35,10 +41,6 @@ class serial_itf_t
 
     virtual ~serial_itf_t() = default;
 
-    /** @brief 链路参数配置（USB 实现为 no-op，仍返回 PYRO_OK）。 */
-    virtual status_t reset(uint32_t BaudRate, uint32_t WordLength,
-                           uint32_t StopBits, uint32_t Parity) = 0;
-
     /**
      * @brief 非阻塞写。
      * @note 只允许在任务上下文调用，**禁止在 ISR 中调用**（USB 实现内部会走 TinyUSB FIFO
@@ -49,12 +51,6 @@ class serial_itf_t
 
     /** @brief 阻塞写（带超时）。 */
     virtual status_t write(const uint8_t *p, uint16_t size, uint32_t waittime) = 0;
-
-    /** @brief 启动接收。 */
-    virtual status_t enable_rx_dma() = 0;
-
-    /** @brief 停止接收。 */
-    virtual status_t disable_rx_dma() = 0;
 
     /** @brief 注册接收回调（owner 用于注销，通常传 this）。 */
     virtual void add_rx_event_callback(const rx_event_func &func,

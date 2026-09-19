@@ -13,7 +13,8 @@ namespace pyro
  * @brief 基于 TinyUSB(CDC-ACM) 的虚拟串口驱动。
  *
  * 对调用层完全等价于 uart_drv_t —— 本类内部消化所有 USB 与 UART 的差异：
- *  - reset() 为 no-op（USB 无波特率）
+ *  - 链路开启用 start()；接收开关用 enable_rx()/disable_rx()
+ *    （USB 无波特率/字长/停止位/校验位，故不存在 reset 概念）
  *  - 接收在 USB 任务上下文回调，woken 恒为 pdFALSE
  *  - set_frame_config() 生效后，一次回调恰好给到一整帧（内部 frame_parser_t 组帧）
  *
@@ -29,13 +30,16 @@ class usb_cdc_drv_t final : public serial_itf_t
     /** @brief 启动 USB 设备栈（创建内部任务：tusb_init + tud_task 循环）。 */
     status_t start();
 
+    /* ------------------ USB 专有接收控制 ------------------ */
+    /** @brief 使能接收：置位内部开关，开始把收到的整帧分发给已注册回调。 */
+    status_t enable_rx();
+
+    /** @brief 停用接收（不再向回调分发，USB 设备栈继续运行）。 */
+    status_t disable_rx();
+
     /* ------------------ serial_itf_t 实现 ------------------ */
-    status_t reset(uint32_t BaudRate, uint32_t WordLength, uint32_t StopBits,
-                   uint32_t Parity) override;
     status_t write(const uint8_t *p, uint16_t size) override;
     status_t write(const uint8_t *p, uint16_t size, uint32_t waittime) override;
-    status_t enable_rx_dma() override;
-    status_t disable_rx_dma() override;
     void     add_rx_event_callback(const rx_event_func &func, uint32_t owner) override;
     status_t remove_rx_event_callback(uint32_t owner) override;
     void     set_frame_config(uint8_t sof, uint16_t frame_len) override;

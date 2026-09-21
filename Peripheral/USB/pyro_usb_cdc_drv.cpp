@@ -2,12 +2,9 @@
 
 #include "tusb.h"
 #include "stm32h7xx_hal.h"
+#include "pyro_usb_desc_config.h"   // 设备身份：序列号长度上限 + 描述符注入接口
 
-// 自测回环档位（生产环境保持 0；需要自测时由 CMake 定义 1 或 2）
-//   0 = 正常业务路径   1 = 字节回环   2 = 经驱动层组帧后再回环
-#ifndef USB_CDC_LOOPBACK
-#define USB_CDC_LOOPBACK 0
-#endif
+#include <cstring>                  // strlen
 
 namespace pyro
 {
@@ -82,8 +79,59 @@ usb_cdc_drv_t &usb_cdc_drv_t::instance()
 
 status_t usb_cdc_drv_t::start()
 {
+    const char *serial = "PYRO-UNK-DEV";
+
     if (_task)
         return PYRO_ALREADY_INIT;
+
+    // 序列号默认为"PYRO-UNK-DEV"，
+    // 长度上限与描述符缓冲的关系见 pyro_usb_desc_config.h。
+    if (!serial || serial[0] == '\0')
+        return PYRO_PARAM_ERROR;
+
+    const size_t len = strlen(serial);
+    if (len > static_cast<size_t>(PYRO_USB_SERIAL_MAX_LEN))
+        return PYRO_PARAM_ERROR;
+
+    for (size_t i = 0; i < len; ++i)
+    {
+        if (serial[i] < 0x20 || serial[i] > 0x7E)
+            return PYRO_PARAM_ERROR;
+    }
+
+    // 注入描述符：必须先于 tusb_init()（USB 任务在下方才被创建并启动）
+    pyro_usb_desc_set_serial(serial);
+
+    _task = new usb_task_t(this);
+    if (!_task)
+        return PYRO_NO_MEMORY;
+
+    return _task->start();
+}
+
+status_t usb_cdc_drv_t::start(const char *serial)
+{
+    if (_task)
+        return PYRO_ALREADY_INIT;
+
+    // 序列号为必填身份：缺失/超长/非可打印 ASCII 一律拒绝，避免"静默使用默认值或截断"
+    // 导致同一 PC 上多块板被识别为同一设备（抢同一个 COM 号），这是最难排查的失效形态。
+    // 长度上限与描述符缓冲的关系见 pyro_usb_desc_config.h。
+    if (!serial || serial[0] == '\0')
+        return PYRO_PARAM_ERROR;
+
+    const size_t len = strlen(serial);
+    if (len > static_cast<size_t>(PYRO_USB_SERIAL_MAX_LEN))
+        return PYRO_PARAM_ERROR;
+
+    for (size_t i = 0; i < len; ++i)
+    {
+        if (serial[i] < 0x20 || serial[i] > 0x7E)
+            return PYRO_PARAM_ERROR;
+    }
+
+    // 注入描述符：必须先于 tusb_init()（USB 任务在下方才被创建并启动）
+    pyro_usb_desc_set_serial(serial);
 
     _task = new usb_task_t(this);
     if (!_task)
@@ -120,10 +168,7 @@ status_t usb_cdc_drv_t::write(const uint8_t *p, uint16_t size, uint32_t)
 
 status_t usb_cdc_drv_t::enable_rx()
 {
-#if USB_CDC_LOOPBACK == 2
-    // 自测档位 2：用自瞄的帧参数开启组帧，从而验证 frame_parser_t 的切帧行为
-    _parser.configure(0xA5, 29);
-#endif
+    // 组帧参数由调用层通过 set_frame_config() 提供（链路无关，见 serial_itf_t 契约）
     _rx_enabled = true;
     return PYRO_OK;
 }
@@ -206,27 +251,6 @@ void usb_cdc_drv_t::dispatch(const uint8_t *p, uint16_t size)
 
     BaseType_t woken = pdFALSE;   // 任务上下文：无需 portYIELD
 
-#if USB_CDC_LOOPBACK == 2
-    // 自测档位 2：无接收方时回环（组帧开启则回环整帧），用于验证 USB 通路与切帧
-    if (n == 0)
-    {
-        if (_parser.enabled())
-        {
-            _parser.feed(p, size,
-                         [](const uint8_t *frame, uint16_t len) -> bool
-                         {
-                             loopback_write(frame, len);
-                             return true;
-                         });
-        }
-        else
-        {
-            loopback_write(p, size);
-        }
-        return;
-    }
-#endif
-
     if (n == 0)
         return;   // 尚无接收方（上层还没注册回调）：丢弃
 
@@ -252,16 +276,6 @@ void usb_cdc_drv_t::dispatch(const uint8_t *p, uint16_t size)
                  });
 }
 
-void usb_cdc_drv_t::loopback_write(const uint8_t *p, uint16_t size)
-{
-    const uint32_t avail = tud_cdc_write_available();
-    const uint32_t n = (size < avail) ? size : avail;
-    if (n == 0)
-        return;
-    tud_cdc_write(p, n);
-    tud_cdc_write_flush();
-}
-
 void usb_cdc_drv_t::on_cdc_rx()
 {
     uint8_t buf[64];
@@ -272,23 +286,13 @@ void usb_cdc_drv_t::on_cdc_rx()
         if (n == 0)
             break;
 
-#if USB_CDC_LOOPBACK == 1
-        // 档位 1：纯字节回环，只验证 USB 收发通路
-        loopback_write(buf, (uint16_t) n);
-#else
-        // 档位 0（正常业务路径）与档位 2（经组帧后回环，见 dispatch 内部 #if）
         dispatch(buf, (uint16_t) n);
-#endif
     }
 }
 
 void usb_cdc_drv_t::on_mount()
 {
-#if USB_CDC_LOOPBACK != 0
-    static const char msg[] = "[USB] mounted\r\n";
-    loopback_write(reinterpret_cast<const uint8_t *>(msg),
-                   (uint16_t) (sizeof(msg) - 1));
-#endif
+    // 预留挂载钩子：当前无业务动作（"在线"判定由调用层超时逻辑负责）
 }
 
 void usb_cdc_drv_t::on_umount()
@@ -299,17 +303,9 @@ void usb_cdc_drv_t::on_umount()
 
 void usb_cdc_drv_t::on_line_state(bool dtr, bool rts)
 {
-    (void) rts;
-#if USB_CDC_LOOPBACK != 0
-    static const char dtr_on[]  = "[USB] dtr=1\r\n";
-    static const char dtr_off[] = "[USB] dtr=0\r\n";
-    const char *msg = dtr ? dtr_on : dtr_off;
-    loopback_write(reinterpret_cast<const uint8_t *>(msg),
-                   (uint16_t) (dtr ? (sizeof(dtr_on) - 1)
-                                   : (sizeof(dtr_off) - 1)));
-#else
+    // 预留 DTR 策略钩子：当前 write() 不依赖 DTR（见 write() 内注释与 tusb_config.h）
     (void) dtr;
-#endif
+    (void) rts;
 }
 
 } // namespace pyro

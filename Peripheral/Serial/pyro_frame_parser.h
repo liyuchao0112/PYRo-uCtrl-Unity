@@ -19,7 +19,7 @@ namespace pyro
 class frame_parser_t
 {
   public:
-    static constexpr uint16_t MAX_FRAME_LEN = 64; // 自瞄帧 29B，留足余量
+    static constexpr uint16_t MAX_FRAME_LEN = 64; // 常见业务帧约 29B，留足余量
 
     /** @brief 置位 SOF 与帧长。frame_len 必须 <= MAX_FRAME_LEN。 */
     void configure(uint8_t sof, uint16_t frame_len)
@@ -62,7 +62,7 @@ class frame_parser_t
     }
 
   private:
-    uint8_t  _sof{0xA5};
+    uint8_t  _sof{0x00};    // 未 configure() 时 _len = 0（组帧未启用），默认值不参与切帧
     uint16_t _len{0};
     uint16_t _idx{0};
     uint8_t  _buf[MAX_FRAME_LEN]{};

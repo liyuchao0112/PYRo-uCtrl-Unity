@@ -13,8 +13,10 @@ namespace pyro
  * @brief 基于 TinyUSB(CDC-ACM) 的虚拟串口驱动。
  *
  * 对调用层完全等价于 uart_drv_t —— 本类内部消化所有 USB 与 UART 的差异：
- *  - 链路开启用 start()；接收开关用 enable_rx()/disable_rx()
+ *  - 链路开启用 start(serial)；接收开关用 enable_rx()/disable_rx()
  *    （USB 无波特率/字长/停止位/校验位，故不存在 reset 概念）
+ *  - 设备身份：厂商/产品为编译期常量（pyro_usb_desc_config.h），
+ *    序列号由调用层经 start(serial) 注入（必填，见该参数说明）
  *  - 接收在 USB 任务上下文回调，woken 恒为 pdFALSE
  *  - set_frame_config() 生效后，一次回调恰好给到一整帧（内部 frame_parser_t 组帧）
  *
@@ -27,8 +29,25 @@ class usb_cdc_drv_t final : public serial_itf_t
   public:
     static usb_cdc_drv_t &instance();
 
-    /** @brief 启动 USB 设备栈（创建内部任务：tusb_init + tud_task 循环）。 */
+    /**
+     * @brief 启动 USB 设备栈（创建内部任务：tusb_init + tud_task 循环）。（不传参默认值）
+     * @return PYRO_OK / PYRO_ALREADY_INIT / PYRO_PARAM_ERROR（序列号非法）/ PYRO_NO_MEMORY
+     * @note 序列号在 tusb_init() 之前写入描述符表；运行期再改无效（主机已缓存枚举结果）。
+     * @warning 空指针/空串会被拒绝 —— 产品名固定后，无序列号会使 Windows 按端口位置建实例。
+     */
     status_t start();
+
+    /**
+     * @brief 启动 USB 设备栈（创建内部任务：tusb_init + tud_task 循环）。
+     * @param serial 设备序列号（字符串描述符 index 3），**必填**：由应用层自行书写，
+     *               可打印 ASCII（0x20~0x7E）、非空、长度 ≤ PYRO_USB_SERIAL_MAX_LEN(31)、
+     *               且必须为**静态存储**（字符串字面量天然满足）。
+     *               建议格式 "<机型>-<板别>"（例 "INFANTRY2-GIMBAL"），唯一性由调用者负责。
+     * @return PYRO_OK / PYRO_ALREADY_INIT / PYRO_PARAM_ERROR（序列号非法）/ PYRO_NO_MEMORY
+     * @note 序列号在 tusb_init() 之前写入描述符表；运行期再改无效（主机已缓存枚举结果）。
+     * @warning 空指针/空串会被拒绝 —— 产品名固定后，无序列号会使 Windows 按端口位置建实例。
+     */
+    status_t start(const char *serial);
 
     /* ------------------ USB 专有接收控制 ------------------ */
     /** @brief 使能接收：置位内部开关，开始把收到的整帧分发给已注册回调。 */
@@ -50,7 +69,7 @@ class usb_cdc_drv_t final : public serial_itf_t
     [[nodiscard]] bool is_connected() const;  // 已挂载且主机置了 DTR
 
     /* ------------------ 供 C 回调桥接 ------------------ */
-    void on_cdc_rx();                        // tud_cdc_rx_cb -> 读 FIFO + 分发/回环
+    void on_cdc_rx();                        // tud_cdc_rx_cb -> 读 FIFO + 分发给已注册回调
     void on_mount();                         // tud_mount_cb
     void on_umount();                        // tud_umount_cb
     void on_line_state(bool dtr, bool rts);  // tud_cdc_line_state_cb
@@ -86,9 +105,6 @@ class usb_cdc_drv_t final : public serial_itf_t
 
     /** @brief 把一段字节流分发给已注册回调（按需组帧）。 */
     void dispatch(const uint8_t *p, uint16_t size);
-
-    /** @brief 自测回环：把收到的数据原样发回（USB_CDC_LOOPBACK != 0 时使用）。 */
-    static void loopback_write(const uint8_t *p, uint16_t size);
 
     usb_task_t *_task{nullptr};
     std::vector<rx_cb_entry_t> _rx_cbs{};

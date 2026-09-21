@@ -17,8 +17,8 @@ namespace pyro
  *  2) write() 返回 PYRO_BUSY 表示"没发出去，可重试"；
  *  3) "在线"判定由调用层超时逻辑负责，驱动层只提供物理收发能力。
  *
- * 成员范围：本接口只包含**抽象消费者（infantry2_autoaim_drv_t）通过
- * serial_itf_t* 实际调用的方法**。链路开启与参数配置不属于本契约：
+ * 成员范围：本接口只包含**抽象消费者通过 serial_itf_t* 实际调用的方法**。
+ * 链路开启与参数配置不属于本契约：
  *   uart_drv_t    -> reset() + enable_rx_dma()
  *   usb_cdc_drv_t -> start()  + enable_rx()
  * 它们由各驱动自行提供，调用点在 pyro_init_thread.cpp 的 #ifdef 分派处。

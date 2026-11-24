@@ -30,7 +30,7 @@ class usb_cdc_drv_t {
     usb_cdc_drv_t(const usb_cdc_drv_t&) = delete;
     usb_cdc_drv_t& operator=(const usb_cdc_drv_t&) = delete;
 
-    status_t init(const char *serial_str);
+    status_t init(const char *serial_str = "PYRO-UNK-DEV");
     status_t reset(uint8_t serial_id);
 
     status_t enable_rx(uint8_t serial_id);

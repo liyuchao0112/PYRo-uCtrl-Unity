@@ -17,7 +17,7 @@ usb_cdc_drv_t& usb_cdc_drv_t::instance() {
     return inst;
 }
 
-status_t usb_cdc_drv_t::init(const char *serial_str = "PYRO-UNK-DEV") {
+status_t usb_cdc_drv_t::init(const char *serial_str) {
     if (_init)
         return PYRO_ALREADY_INIT;
 
